@@ -1,5 +1,5 @@
 import conllu
-
+import numpy as np
 
 def get_sentences(file_path):
     with open(file_path, encoding='utf-8') as f:
@@ -23,3 +23,12 @@ def get_word_embeddings(file_path):
             word_embeddings[word] = emb
 
     return word_embeddings
+
+
+def get_missed_vocabs(vocabs, word_emb):
+    missed_vocabs = []
+    for vocab in vocabs:
+        if vocab.lower() not in word_emb:
+            missed_vocabs.append(vocab)
+
+    return list(set(missed_vocabs))
