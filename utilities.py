@@ -1,5 +1,7 @@
 import conllu
 import numpy as np
+from tensorflow.keras.preprocessing.text import one_hot
+from tensorflow.keras.utils import to_categorical
 
 def get_sentences(file_path):
     with open(file_path, encoding='utf-8') as f:
@@ -14,7 +16,7 @@ def get_vocabs(data, vocab_list):
     return vocab_list
 
 
-def get_word_embeddings(file_path):
+def glove_embeddings(file_path):
     word_embeddings = {}
     with open(file_path, encoding='utf-8') as f:
         for line in f:
@@ -32,3 +34,22 @@ def get_missed_vocabs(vocabs, word_emb):
             missed_vocabs.append(vocab)
 
     return list(set(missed_vocabs))
+
+
+def remove_sent_missed_vocab(data, missed_vocabs):
+    for index, sentence in enumerate(data):
+        for word in sentence:
+            if word['form'] in missed_vocabs:
+                del data[index]
+                break
+
+    return data
+
+
+def pos_embeddings(size):
+    upos = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 
+            'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN', 
+            'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
+
+    upos_list = np.array([ x for x in range(1, len(upos)+1)])
+    return to_categorical(upos_list-1, num_classes=size)    
