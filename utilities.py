@@ -52,4 +52,16 @@ def pos_embeddings(size):
             'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
 
     upos_list = np.array([ x for x in range(1, len(upos)+1)])
-    return to_categorical(upos_list-1, num_classes=size)    
+    return to_categorical(upos_list-1, num_classes=size)
+
+
+def dep_embeddings(size):
+    dep = ['acl', 'advcl', 'advmod', 'amod', 'appos', 'aux', 'case',
+            'cc', 'ccomp', 'clf', 'compound', 'conj', 'cop',
+            'csubj', 'dep', 'det', 'discourse', 'dislocated', 'expl',
+            'fixed', 'flat', 'goeswith', 'iobj', 'list', 'mark',
+            'nmod', 'nsubj', 'nummod', 'obj', 'obl', 'orphan',
+            'parataxis', 'punct', 'reparandum', 'root', 'vocative', 'xcomp']
+
+    dep_list = np.array([ x for x in range(1, len(dep)+1)])
+    return to_categorical(dep_list-1, num_classes=size)
