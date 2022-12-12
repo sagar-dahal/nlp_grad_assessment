@@ -1,7 +1,6 @@
 import conllu
 import numpy as np
-from tensorflow.keras.preprocessing.text import one_hot
-from tensorflow.keras.utils import to_categorical
+
 
 def get_sentences(file_path):
     with open(file_path, encoding='utf-8') as f:
@@ -9,59 +8,160 @@ def get_sentences(file_path):
     return data
 
 
-def get_vocabs(data, vocab_list):
-    for sentence in data:
-        for word in sentence:
-            vocab_list.append(word['form'])
-    return vocab_list
+def get_leftmost_child(id, sent):
+    for i in range(id):
+        if sent[i]['head'] == id:
+            return sent[i]['id']
+    return None
 
 
-def glove_embeddings(file_path):
-    word_embeddings = {}
-    with open(file_path, encoding='utf-8') as f:
-        for line in f:
-            word, emb = line.split(maxsplit=1)
-            emb = np.fromstring(emb, "f", sep=" ")
-            word_embeddings[word] = emb
-
-    return word_embeddings
+def get_rightmost_child(id, sent):
+    for i in range(len(sent)-id):
+        if sent[-i-1]['head'] == id:
+            return sent[-i-1]['id']
+    return None
 
 
-def get_missed_vocabs(vocabs, word_emb):
-    missed_vocabs = []
-    for vocab in vocabs:
-        if vocab.lower() not in word_emb:
-            missed_vocabs.append(vocab)
-
-    return list(set(missed_vocabs))
+def has_child(word, buffer):
+    for w in buffer:
+        if w['head'] == word['id']:
+            return True
+    return False
 
 
-def remove_sent_missed_vocab(data, missed_vocabs):
-    for index, sentence in enumerate(data):
-        for word in sentence:
-            if word['form'] in missed_vocabs:
-                del data[index]
-                break
+def correct_action_unlabelled(stack, buffer):
+    left_arc = np.array([[1,0,0]])
+    right_arc = np.array([[0,1,0]])
+    shift = np.array([[0,0,1]])
+    if len(stack) < 3 and len(buffer)>0:
+        return shift
+    elif len(stack) == 2 and len(buffer) == 0:
+        return right_arc
+    elif stack[-1]['head'] == stack[-2]['id']:
+        if has_child(stack[-1], buffer):
+            return shift
+        else:
+            return right_arc
+    elif stack[-2]['head'] == stack[-1]['id']:
+        if has_child(stack[-2], buffer):
+            return shift
+        else:
+            return left_arc
+    elif len(buffer)>0:
+        return shift
 
-    return data
+def correct_action_labelled(stack, buffer, left_labels, right_labels, shift_label):
+    left_arc = np.array([[1,0,0]])
+    right_arc = np.array([[0,1,0]])
+    shift = np.array([[0,0,1]])
+    if len(stack) < 3 and len(buffer)>0:
+        return shift, shift_label
+    elif len(stack) == 2 and len(buffer) == 0:
+        return right_arc, right_labels[stack[1]['deprel']]
+    elif stack[-1]['head'] == stack[-2]['id']:
+        if has_child(stack[-1], buffer):
+            return shift, shift_label
+        else:
+            return right_arc, right_labels[stack[-1]['deprel']]
+    elif stack[-2]['head'] == stack[-1]['id']:
+        if has_child(stack[-2], buffer):
+            return shift, shift_label
+        else:
+            return left_arc, left_labels[stack[-2]['deprel']]
+    elif len(buffer)>0:
+        return shift, shift_label    
 
 
-def pos_embeddings(size):
-    upos = ['ADJ', 'ADP', 'ADV', 'AUX', 'CONJ', 'DET', 
-            'INTJ', 'NOUN', 'NUM', 'PART', 'PRON', 'PROPN', 
-            'PUNCT', 'SCONJ', 'SYM', 'VERB', 'X']
+def get_input(stack, buffer, sentence, sent_index, children, word_emb, pos_emb):
+    if len(stack) == 1:
+        s1 = s1_POS = 'NULL'
+        s2 = stack[0]
+        s2_POS = 'NULL'
+        lc_s1 = lc_s1_POS = 'NULL'
+        lc_s2 = lc_s2_POS = 'NULL'
+        rc_s1 = rc_s1_POS = 'NULL'
+        rc_s2 = rc_s2_POS = 'NULL'
+    elif len(stack) == 2:
+        s1 = stack[1]
+        s1_POS = s1['upos']
+        s2 = stack[0]
+        s2_POS = 'NULL'
 
-    upos_list = np.array([ x for x in range(1, len(upos)+1)])
-    return to_categorical(upos_list-1, num_classes=size)
+        if type(s1['id']) is tuple:
+            return 'break'
 
+        lc_s1 = children[sent_index][s1['id']-1][0]
+        if lc_s1 == 'NULL':
+            lc_s1_POS = 'NULL'
+        else:
+            lc_s1 = sentence[children[sent_index][s1['id']-1][0]-1]
+            lc_s1_POS = lc_s1['upos']
 
-def dep_embeddings(size):
-    dep = ['acl', 'advcl', 'advmod', 'amod', 'appos', 'aux', 'case',
-            'cc', 'ccomp', 'clf', 'compound', 'conj', 'cop',
-            'csubj', 'dep', 'det', 'discourse', 'dislocated', 'expl',
-            'fixed', 'flat', 'goeswith', 'iobj', 'list', 'mark',
-            'nmod', 'nsubj', 'nummod', 'obj', 'obl', 'orphan',
-            'parataxis', 'punct', 'reparandum', 'root', 'vocative', 'xcomp']
+        rc_s1 = children[sent_index][s1['id']-1][1]
+        if rc_s1 == 'NULL':
+            rc_s1_POS = 'NULL'
+        else:
+            rc_s1 = sentence[children[sent_index][s1['id']-1][1]-1]
+            rc_s1_POS = rc_s1['upos']
 
-    dep_list = np.array([ x for x in range(1, len(dep)+1)])
-    return to_categorical(dep_list-1, num_classes=size)
+        lc_s2 = lc_s2_POS = 'NULL'
+        rc_s2 = rc_s2_POS = 'NULL'
+    else:
+        s1 = stack[-1]
+        s1_POS = s1['upos']
+        s2 = stack[-2]
+        s2_POS = s2['upos']
+        if type(s1['id']) is tuple:
+            return 'break'
+        lc_s1 = children[sent_index][s1['id']-1][0]
+        if lc_s1 == 'NULL':
+            lc_s1_POS = 'NULL'
+        else:
+            lc_s1 = sentence[children[sent_index][s1['id']-1][0]-1]
+            lc_s1_POS = lc_s1['upos']
+        
+        rc_s1 = children[sent_index][s1['id']-1][1]
+        if rc_s1 == 'NULL':
+            rc_s1_POS = 'NULL'
+        else:
+            rc_s1 = sentence[children[sent_index][s1['id']-1][1]-1]
+            rc_s1_POS = rc_s1['upos']
+        
+        if type(s2['id']) is tuple:
+            return 'break'
+        lc_s2 = children[sent_index][s2['id']-1][0]
+        if lc_s2 == 'NULL':
+            lc_s2_POS = 'NULL'
+        else:
+            lc_s2 = sentence[children[sent_index][s2['id']-1][0]-1]
+            lc_s2_POS = lc_s2['upos']
+
+        rc_s2 = children[sent_index][s2['id']-1][1]
+        if rc_s2 == 'NULL':
+            rc_s2_POS = 'NULL'
+        else:
+            rc_s2 = sentence[children[sent_index][s2['id']-1][1]-1]
+            rc_s2_POS = rc_s2['upos']
+    if len(buffer) > 0:
+        b1 = buffer[0]
+        b1_POS = buffer[0]['upos']
+    else:
+        b1 = 'NULL'
+        b1_POS = 'NULL'
+
+    s1 = word_emb[str(s1)]
+    s2 = word_emb[str(s2)]
+    lc_s1 = word_emb[str(lc_s1)]
+    lc_s2 = word_emb[str(lc_s2)]
+    rc_s1 = word_emb[str(rc_s1)]
+    rc_s2 = word_emb[str(rc_s2)]
+    s1_POS = pos_emb[s1_POS]
+    s2_POS = pos_emb[s2_POS]
+    lc_s1_POS = pos_emb[lc_s1_POS]
+    lc_s2_POS = pos_emb[lc_s2_POS]
+    rc_s1_POS = pos_emb[rc_s1_POS]
+    rc_s2_POS = pos_emb[rc_s2_POS]
+    b1 = word_emb[str(b1)]
+    b1_POS = pos_emb[str(b1_POS)]
+
+    return np.concatenate((s1,s2,lc_s1,lc_s2,rc_s1,rc_s2,b1,s1_POS,s2_POS,lc_s1_POS,lc_s2_POS,rc_s1_POS,rc_s2_POS,b1_POS))
